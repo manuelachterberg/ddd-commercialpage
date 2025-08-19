@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="de" data-mode="regular">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radio-Spot Generator – Regular / DDD</title>
+  <style>
+    /* --- Reset & base --- */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; color: var(--fg); background: #0b0f14; overflow: hidden; }
+
+    /* --- Theme tokens --- */
+    :root { --radius: 18px; --shadow: 0 12px 34px rgba(0,0,0,.35); }
+    html[data-mode="regular"] { --fg: #0b1020; --muted: #475569; --accent: #2563eb; --accent-2: #22d3ee; --glass: rgba(255, 255, 255, 0.68); --border: rgba(15, 23, 42, .15); }
+    html[data-mode="ddd"] { --fg: #e7d7b6; --muted: #b9a57d; --accent: #d97706; --accent-2: #f59e0b; --glass: rgba(60, 48, 30, 0.70); --border: rgba(255, 230, 180, .22); background-color: #2b2419; }
+
+    /* --- Layout --- */
+    #app { position: fixed; inset: 0; display: grid; place-items: center; padding: clamp(16px, 2vw, 32px); }
+    #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+    .panel { position: relative; width: min(900px, 92vw); backdrop-filter: blur(20px) saturate(1.2); -webkit-backdrop-filter: blur(20px) saturate(1.2);
+      background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    .panel::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; mix-blend-mode: overlay; }
+
+    .content { display: grid; gap: 18px; padding: clamp(20px, 4vw, 36px); }
+    .row { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+    h1 { margin: 0; font-size: clamp(22px, 3.2vw, 34px); letter-spacing: 0.2px; }
+    .tag { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); opacity: .9; }
+
+    label.switch { display: inline-flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+    .toggle { appearance: none; width: 54px; height: 30px; background: linear-gradient(180deg, #cbd5e1, #94a3b8); border-radius: 999px; position: relative; outline: none; transition: .25s transform; box-shadow: inset 0 2px 6px rgba(0,0,0,.25); }
+    .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: white; box-shadow: 0 4px 10px rgba(0,0,0,.35); transition: .25s left, .25s background; }
+    .toggle:checked { background: linear-gradient(180deg, #92400e, #451a03); }
+    .toggle:checked::after { left: 27px; background: #f59e0b; }
+
+    textarea { width: 100%; min-height: 140px; resize: vertical; padding: 14px 16px; border-radius: calc(var(--radius) - 6px); border: 1px solid var(--border); outline: none; background: rgba(255,255,255,.88); color: #0b1020; font-size: 16px; line-height: 1.5; box-shadow: inset 0 2px 8px rgba(0,0,0,.06); }
+    html[data-mode="ddd"] textarea { background: rgba(40,30,15,.88); color: #f5f5dc; }
+
+    .actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+
+    button.primary { appearance: none; border: none; padding: 12px 16px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white; font-weight: 700; letter-spacing: .2px; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,.25); transition: transform .05s ease, box-shadow .2s ease, filter .2s ease; }
+    button.primary:hover { filter: brightness(1.05); box-shadow: 0 10px 26px rgba(0,0,0,.3); }
+    button.primary:active { transform: translateY(1px) scale(.997); }
+    button.primary[disabled] { filter: grayscale(1); cursor: progress; opacity: .7; }
+
+    .footer { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+
+    html[data-mode="ddd"] .panel { box-shadow: 0 18px 40px rgba(165, 90, 0,.25), inset 0 0 0 1px rgba(255,255,255,.08); }
+    html[data-mode="ddd"] .panel::after { background: repeating-linear-gradient(180deg, rgba(255,230,180,.06) 0 2px, rgba(0,0,0,0) 2px 4px); }
+
+    #status { font-size: 14px; min-height: 1.5em; color: var(--muted); }
+    #result { margin-top: 10px; }
+    audio { width: 100%; margin-top: 8px; }
+    .visually-hidden{ position:absolute !important; height:1px; width:1px; overflow:hidden; clip:rect(1px, 1px, 1px, 1px); white-space:nowrap; }
+  </style>
+</head>
+<body>
+  <canvas id="gl" aria-hidden="true"></canvas>
+  <div id="app">
+    <div class="panel">
+      <div class="content">
+        <div class="row">
+          <h1>Radio-Spot Generator</h1>
+          <span class="tag" id="modeTag">Regular Mode</span>
+        </div>
+
+        <label class="switch" title="DDD = Doomsday Dispatch">
+          <input id="mode" type="checkbox" class="toggle" aria-label="DDD-Mode umschalten" />
+          <span><strong>DDD-Mode</strong> aktivieren</span>
+        </label>
+
+        <label for="prompt" class="visually-hidden">Werbe-Thema</label>
+        <textarea id="prompt" placeholder="Wofür soll der Spot werben? Produktname oder Beschreibung eingeben…"></textarea>
+
+        <div class="actions">
+          <button id="submit" class="primary">Absenden</button>
+        </div>
+
+        <div id="status" role="status" aria-live="polite"></div>
+        <div id="result"></div>
+
+        <div class="footer">
+          <span>n8n-ready • POST JSON: { prompt, mode }</span>
+          <span><a href="#" id="cfgLink">Konfiguration</a></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="cfgModal">
+    <form method="dialog" style="min-width: min(520px, 92vw); padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--glass); color: var(--fg);">
+      <h3 style="margin: 0 0 10px;">Backend-Konfiguration</h3>
+      <p style="margin: 0 0 8px; font-size: 14px; color: var(--muted);">Passe die Ziel-URL für deinen n8n-Webhook an.</p>
+      <label style="display:block; font-size: 12px; opacity: .8;">n8n Endpoint URL</label>
+      <input id="endpoint" type="text" style="width:100%; padding:10px 12px; border-radius:10px; border: 1px solid var(--border); background: rgba(255,255,255,.85); color:#0b1020;" />
+      <!-- NEW: Spots Base Path -->
+      <label style="display:block; font-size: 12px; opacity: .8; margin-top:10px;">Spots Base-Path (öffentlich)</label>
+      <input id="spotsBase" type="text" placeholder="/spots/" style="width:100%; padding:10px 12px; border-radius:10px; border: 1px solid var(--border); background: rgba(255,255,255,.85); color:#0b1020;" />
+
+      <!-- NEW: Webhook Basic Auth -->
+      <label style="display:block; font-size: 12px; opacity: .8; margin-top:10px;">Webhook Benutzername</label>
+      <input id="whUser" type="text" placeholder="z.B. cg_web" style="width:100%; padding:10px 12px; border-radius:10px; border: 1px solid var(--border); background: rgba(255,255,255,.85); color:#0b1020;" />
+
+      <label style="display:block; font-size: 12px; opacity: .8; margin-top:10px;">Webhook Passwort (nur aktuelle Sitzung)</label>
+      <input id="whPass" type="password" placeholder="• • • • •" style="width:100%; padding:10px 12px; border-radius:10px; border: 1px solid var(--border); background: rgba(255,255,255,.85); color:#0b1020;" />
+
+      <div style="display:flex; gap:10px; justify-content:flex-end; margin-top: 12px;">
+        <button value="cancel" style="padding:8px 12px; border-radius:10px; border:1px solid var(--border); background:transparent; cursor:pointer;">Abbrechen</button>
+        <button id="saveCfg" value="default" style="padding:8px 12px; border-radius:10px; border: none; background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:white; cursor:pointer;">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    // --- Config ---
+    const DEFAULT_ENDPOINT = '/n8n/webhook/radio-spot';
+    // Optional: falls Backend nur jobId liefert, bauen wir die Standard-URL
+    const SPOTS_BASE = (localStorage.getItem('rs_spots_base') || '/spots/');
+
+    // NEW: Auth helper (User persistent, Passwort nur Sitzung)
+    function getAuth(){
+      return {
+        u: localStorage.getItem('rs_wh_user') || '',
+        p: sessionStorage.getItem('rs_wh_pass') || ''
+      };
+    }
+
+    function buildDefaultAudioUrl(jobId){
+      const base = SPOTS_BASE.endsWith('/') ? SPOTS_BASE : SPOTS_BASE + '/';
+      const origin = window.location.origin;
+      return `${origin}${base}${jobId}/output_${jobId}.mp3`;
+    }
+
+    async function waitForUrl(url, { tries = 60, delayMs = 1000 } = {}){
+      for (let i=0; i<tries; i++){
+        try {
+          const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+          if (res.ok) return true;
+        } catch {}
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+      return false;
+    }
+
+    const $ = (sel) => document.querySelector(sel);
+    const app = {
+      endpoint: localStorage.getItem('rs_endpoint') || DEFAULT_ENDPOINT,
+      mode: 'regular'
+    };
+
+    const modeCheckbox = $('#mode');
+    const modeTag = $('#modeTag');
+    const submitBtn = $('#submit');
+    const promptEl = $('#prompt');
+    const statusEl = $('#status');
+    const resultEl = $('#result');
+
+    // ====== BACKGROUND SHADER ENGINE (unchanged) ======
+    const canvas = document.getElementById('gl');
+    let gl, program, uTime, uRes, startTime, buffer, animationId;
+
+    const VERT = `attribute vec2 a_pos; void main(){ gl_Position = vec4(a_pos,0.0,1.0);} `;
+
+    // (Shaders unverändert)
+    const DDD_FRAG = `#ifdef GL_ES
+precision mediump float;
+#endif
+
+uniform vec2  u_res;
+uniform float u_time;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  float a=hash(i), b=hash(i+vec2(1.0,0.0)), c=hash(i+vec2(0.0,1.0)), d=hash(i+vec2(1.0,1.0));
+  vec2 u=f*f*(3.0-2.0*f);
+  return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
+}
+float onOff(float a, float b, float c){ return step(c, sin(u_time + a*cos(u_time*b))); }
+float ramp(float y, float start, float end){
+  float inside = step(start,y) - step(end,y);
+  float fact = (y-start)/(end-start)*inside;
+  return (1.0 - fact) * inside;
+}
+
+vec2 iso(vec2 frag){
+  vec2 uv = frag / u_res;
+  uv = uv*2.0 - 1.0;
+  uv.x *= u_res.x / u_res.y;
+  return uv;
+}
+
+float stripes(vec2 uv){
+  float noi = noise(uv*vec2(0.5,1.0) + vec2(1.0,3.0));
+  float s = ramp(mod(uv.y*4.0 + u_time/2.0 + sin(u_time + sin(u_time*0.63)), 1.0), 0.5, 0.6) * noi;
+  return s;
+}
+
+vec2 screenDistort(vec2 uv){
+  uv -= vec2(0.5);
+  uv = uv*1.2*(1.0/1.2 + 2.0*uv.x*uv.x*uv.y*uv.y);
+  uv += vec2(0.5);
+  return uv;
+}
+
+vec3 getVideo(vec2 uv){
+  vec2 look = uv;
+  float window = 1.0 / (1.0 + 20.0 * pow(look.y - mod(u_time/4.0, 1.0), 2.0));
+  look.x += sin(look.y*10.0 + u_time)/50.0 * onOff(4.0,4.0,0.3) * (1.0 + cos(u_time*80.0)) * window;
+
+  float vShift = 0.4 * onOff(2.0,3.0,0.9) *
+                 (sin(u_time)*sin(u_time*20.0) + (0.5 + 0.1*sin(u_time*200.0)*cos(u_time)));
+  look.y = fract(look.y + vShift);
+
+  float bands = 0.5 + 0.5*sin(look.y*80.0 + u_time*6.0);
+  float xmod  = 0.5 + 0.5*sin(look.x*30.0 + u_time*3.0);
+  vec3 video  = vec3(mix(0.25, 0.9, bands * xmod));
+
+  video = mix(video, vec3(0.86,0.73,0.53), 0.65);
+  return video;
+}
+
+void main(){
+  vec2 frag = gl_FragCoord.xy;
+  vec2 uv = frag / u_res;
+
+  uv = screenDistort(uv);
+
+  vec3 video = getVideo(uv);
+
+  float vigAmt = 3.0 + 0.3*sin(u_time + 5.0*cos(u_time*5.0));
+  float dx = uv.x - 0.5, dy = uv.y - 0.5;
+  float vignette = (1.0 - vigAmt*dy*dy) * (1.0 - vigAmt*dx*dx);
+  vignette = clamp(vignette, 0.0, 1.0);
+
+  video += stripes(uv);
+  video += noise(iso(frag)*2.0)/2.0;
+
+  video *= vignette;
+  video *= (12.0 + mod(uv.y*30.0 + u_time, 1.0)) / 13.0;
+
+  gl_FragColor = vec4(video, 1.0);
+}`;
+
+    const REGULAR_FRAG = `#ifdef GL_ES
+precision mediump float;
+#endif
+uniform vec2 u_res;
+uniform float u_time;
+float blob(vec2 uv, vec2 p, float s){ return s/length(uv-p);}
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_res.xy; uv = uv*2.0-1.0; uv.x *= u_res.x/u_res.y;
+  float t = u_time*0.25; float c=0.0;
+  c += blob(uv, vec2(sin(t)*0.6, cos(t*0.7)*0.3), 0.28);
+  c += blob(uv, vec2(cos(t*1.2)*0.5, sin(t*0.9)*0.4), 0.22);
+  c += blob(uv, vec2(sin(t*0.6+1.0)*0.7, cos(t*0.8+2.0)*0.5), 0.25);
+  c = smoothstep(0.0, 1.2, c);
+  vec3 colA = vec3(0.14,0.39,0.92); vec3 colB = vec3(0.13,0.83,0.94); vec3 colC = vec3(0.48,0.92,0.60);
+  vec3 col = mix(mix(colA, colB, c), colC, 0.25 + 0.25*sin(t*0.7));
+  col += 0.05 * sin(vec3(0.0,2.0,4.0) + c*6.2831 + t);
+  gl_FragColor = vec4(col,1.0);
+}`;
+
+    const shaders = { regular: {frag: REGULAR_FRAG}, ddd: {frag: DDD_FRAG} };
+
+    function createShader(type, source){ const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); throw new Error('Shader compile error'); } return s; }
+    function createProgram(vsSource, fsSource){ const vs = createShader(gl.VERTEX_SHADER, vsSource); const fs = createShader(gl.FRAGMENT_SHADER, fsSource); const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog); if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(prog)); throw new Error('Program link error'); } return prog; }
+
+    function initGL(){
+      if(!gl){ gl = canvas.getContext('webgl', {antialias:false, preserveDrawingBuffer:false}); if(!gl){ fallback2D(); return; }
+        buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+      }
+      if(program){ gl.deleteProgram(program); program = null; }
+      const fragSrc = (app.mode === 'ddd') ? shaders.ddd.frag : shaders.regular.frag;
+      program = createProgram(VERT, fragSrc);
+      gl.useProgram(program);
+      const loc = gl.getAttribLocation(program, 'a_pos'); gl.enableVertexAttribArray(loc); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      uTime = gl.getUniformLocation(program, 'u_time'); uRes = gl.getUniformLocation(program, 'u_res');
+      startTime = performance.now(); onResize(); if(animationId) cancelAnimationFrame(animationId); tick();
+    }
+
+    function onResize(){
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = Math.floor(innerWidth * dpr); const h = Math.floor(innerHeight * dpr);
+      if(canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; canvas.style.width = '100%'; canvas.style.height = '100%'; }
+      if(gl && uRes){ gl.viewport(0,0,w,h); gl.uniform2f(uRes, w, h); }
+    }
+
+    function tick(){ if(!gl || !program) return; const t = (performance.now() - startTime)/1000; if(uTime) gl.uniform1f(uTime, t); gl.drawArrays(gl.TRIANGLES, 0, 3); animationId = requestAnimationFrame(tick); }
+
+    function fallback2D(){
+      const ctx = canvas.getContext('2d'); let t0 = performance.now();
+      function loop(){ const t = (performance.now()-t0)/1000; const w = canvas.width = innerWidth; const h = canvas.height = innerHeight; const g = ctx.createLinearGradient(0,0,w,h); g.addColorStop(0, '#0ea5e9'); g.addColorStop(1, '#22d3ee'); ctx.fillStyle = g; ctx.fillRect(0,0,w,h); requestAnimationFrame(loop);} loop();
+    }
+
+    window.addEventListener('resize', onResize);
+
+    // ====== APP LOGIC ======
+    function applyMode(){ document.documentElement.setAttribute('data-mode', app.mode); modeTag.textContent = app.mode === 'ddd' ? 'DDD Mode' : 'Regular Mode'; initGL(); }
+    modeCheckbox.addEventListener('change', () => { app.mode = modeCheckbox.checked ? 'ddd' : 'regular'; applyMode(); });
+
+    async function submit(){
+      const prompt = (promptEl.value || '').trim(); if(!prompt){ promptEl.focus(); return; }
+      const mode = app.mode; statusEl.textContent = 'Sende an n8n…'; submitBtn.disabled = true;
+      try {
+        // NEW: Basic Auth Header, falls gesetzt
+        const headers = { 'Content-Type': 'application/json' };
+        const {u,p} = getAuth();
+        if(u && p){ headers['Authorization'] = 'Basic ' + btoa(`${u}:${p}`); }
+
+        const res = await fetch(app.endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ prompt, mode })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json().catch(() => ({}));
+
+        // Reset UI
+        resultEl.innerHTML = '';
+
+        // Finale URL bestimmen
+        let url = data.audioUrl || (data.jobId ? buildDefaultAudioUrl(data.jobId) : null);
+        if (!url) {
+          statusEl.textContent = data.message || 'Keine URL erhalten.';
+          return;
+        }
+
+        // Falls Backend noch schreibt: auf Verfügbarkeit warten
+        statusEl.textContent = 'Warte auf fertige Datei…';
+        const ok = await waitForUrl(url, { tries: 60, delayMs: 1000 });
+        if (!ok) {
+          statusEl.textContent = 'Datei nicht gefunden (Timeout).';
+          const pEl = document.createElement('p'); pEl.textContent = url; resultEl.appendChild(pEl);
+          return;
+        }
+
+        statusEl.textContent = data.message || 'Spot bereit.';
+        const a = document.createElement('audio'); a.controls = true; a.src = url + '?t=' + Date.now();
+        resultEl.appendChild(a);
+        try { await a.play(); } catch {}
+      } catch (err) {
+        statusEl.textContent = 'Fehler: ' + (err.message || err);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+    submitBtn.addEventListener('click', submit);
+    promptEl.addEventListener('keydown', (e) => { if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='enter'){ submit(); } });
+
+    // Settings modal
+    const cfgModal = document.getElementById('cfgModal');
+    const cfgLink = document.getElementById('cfgLink');
+    const endpointInput = document.getElementById('endpoint');
+    const spotsBaseInput = document.getElementById('spotsBase');
+    const whUserInput = document.getElementById('whUser');      // NEW
+    const whPassInput = document.getElementById('whPass');      // NEW
+    const saveCfg = document.getElementById('saveCfg');
+
+    cfgLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      endpointInput.value = app.endpoint;
+      spotsBaseInput.value = SPOTS_BASE;
+      const {u,p} = getAuth();
+      whUserInput.value = u;
+      whPassInput.value = p;
+      cfgModal.showModal();
+    });
+    saveCfg.addEventListener('click', () => {
+      app.endpoint = endpointInput.value.trim() || DEFAULT_ENDPOINT;
+      localStorage.setItem('rs_endpoint', app.endpoint);
+      const v = spotsBaseInput.value.trim() || '/spots/';
+      localStorage.setItem('rs_spots_base', v);
+      // Auth speichern: User persistent, Passwort nur für aktuelle Sitzung
+      const u = (whUserInput.value || '').trim();
+      const p = (whPassInput.value || '').trim();
+      localStorage.setItem('rs_wh_user', u);
+      if (p) sessionStorage.setItem('rs_wh_pass', p);
+    });
+
+    (function boot(){ initGL(); })();
+  </script>
+</body>
+</html>
