@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="de" data-mode="ddd">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DOOMSDAY DISPATCH – Sendepause</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      background: #2b2419; color: #e7d7b6; overflow: hidden;
+    }
+    #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+    .center { position: relative; z-index: 1; min-height: 100%; display: grid; place-items: center; padding: 24px; }
+    .panel {
+      position: relative; text-align: center; max-width: 900px; width: min(92vw, 900px);
+      padding: clamp(28px, 4vw, 44px); border-radius: 18px;
+      background: rgba(60, 48, 30, 0.52); border: 1px solid rgba(255, 230, 180, .22);
+      box-shadow: 0 18px 40px rgba(165, 90, 0,.25), inset 0 0 0 1px rgba(255,255,255,.08);
+    }
+    h1 { margin: 0 0 10px; letter-spacing: .6px; font-size: clamp(28px, 4vw, 48px); }
+    p  { margin: 6px 0 22px; color: #b9a57d; font-size: clamp(18px, 2.2vw, 22px); }
+    .emoji { font-size: clamp(70px, 12vw, 140px); line-height: 1; }
+
+    /* === CRT effect (DDD) === */
+    @keyframes crtFlicker { 0%,100%{opacity:.98} 50%{opacity:1} }
+    @keyframes crtJitter  { 0%,100%{transform:translateZ(0)} 50%{transform:translateY(.2px)} }
+    @keyframes scanShift  { 0%{background-position:0 0} 100%{background-position:0 2px} }
+
+    .crt {
+      filter:
+        contrast(1.08) saturate(1.22)
+        drop-shadow(1px 0 0 rgba(255, 30, 90, 0.28))
+        drop-shadow(-1px 0 0 rgba(0, 255, 255, 0.24));
+      animation: crtFlicker 2.6s steps(60) infinite, crtJitter 6s ease-in-out infinite;
+    }
+    .crt::before, .crt::after { content:""; position:absolute; inset:-1px; pointer-events:none; border-radius:inherit; }
+    .crt::before {
+      mix-blend-mode: overlay; opacity:.85;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(255,255,255,0.06) 0px,
+        rgba(255,255,255,0.06) 2px,
+        rgba(0,0,0,0.10) 2px,
+        rgba(0,0,0,0.10) 4px
+      );
+      animation: scanShift .8s linear infinite;
+    }
+    .crt::after {
+      opacity:.8;
+      background: radial-gradient(ellipse at center, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.28) 80%);
+    }
+    .crt, .crt * {
+      text-shadow:
+        3px 0   0 rgba(255, 30, 90, 0.28),
+       -3px 0   0 rgba(0, 255, 255, 0.24),
+        0 0 .8px rgba(255,240,200,.35),
+        0 0 6px  rgba(255,200,100,.12),
+        0 0 12px rgba(255,180,80,.06);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gl" aria-hidden="true"></canvas>
+
+  <div class="center">
+    <div class="panel crt">
+      <h1>DOOMSDAY DISPATCH</h1>
+      <p>– Sendepause –<br>Wir sind gleich wieder für euch am Stand</p>
+      <div class="emoji">📻</div>
+    </div>
+  </div>
+
+  <script>
+    // ===== WebGL background: original DDD CRT look + extra film grain/noise =====
+    const canvas = document.getElementById('gl');
+    const gl = canvas.getContext('webgl', { antialias:false, preserveDrawingBuffer:false });
+
+    function resize(){
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = Math.floor(innerWidth * dpr), h = Math.floor(innerHeight * dpr);
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      canvas.style.width = '100%'; canvas.style.height = '100%';
+      gl.viewport(0,0,w,h);
+    }
+    window.addEventListener('resize', resize);
+
+    const VERT = `
+      attribute vec2 a_pos;
+      void main(){ gl_Position = vec4(a_pos,0.0,1.0); }
+    `;
+
+    // ==== OLD CRT shader core, plus additive noise/grain overlay ====
+    const FRAG = `
+#ifdef GL_ES
+precision mediump float;
+#endif
+uniform vec2  u_res;
+uniform float u_time;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+float n2(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  float a=hash(i);
+  float b=hash(i+vec2(1.,0.));
+  float c=hash(i+vec2(0.,1.));
+  float d=hash(i+vec2(1.,1.));
+  vec2 u=f*f*(3.-2.*f);
+  return mix(a,b,u.x) + (c-a)*u.y*(1.-u.x) + (d-b)*u.x*u.y;
+}
+float ramp(float y, float start, float end){
+  float inside = step(start,y) - step(end,y);
+  float fact = (y-start)/(end-start)*inside;
+  return (1.0 - fact) * inside;
+}
+vec2 iso(vec2 frag){
+  vec2 uv = frag / u_res;
+  uv = uv*2.0 - 1.0;
+  uv.x *= u_res.x / u_res.y;
+  return uv;
+}
+float stripes(vec2 uv){
+  // same feel as before
+  float s = ramp(mod(uv.y*4.0 + u_time/2.0 + sin(u_time + sin(u_time*0.63)), 1.0), 0.5, 0.6);
+  // subtle per-line variance
+  s *= 0.5 + 0.5*sin(uv.y*80.0 + u_time*6.0);
+  return s * 0.12;
+}
+vec2 screenDistort(vec2 uv){
+  uv -= vec2(0.5);
+  uv = uv*1.2*(1.0/1.2 + 2.0*uv.x*uv.x*uv.y*uv.y);
+  uv += vec2(0.5);
+  return uv;
+}
+vec3 getVideo(vec2 uv){
+  vec2 look = uv;
+  float window = 1.0 / (1.0 + 20.0 * pow(look.y - mod(u_time/4.0, 1.0), 2.0));
+  look.x += sin(look.y*10.0 + u_time)/50.0 * (1.0 + cos(u_time*80.0)) * window;
+  float vShift = 0.4 * (sin(u_time)*sin(u_time*20.0) + (0.5 + 0.1*sin(u_time*200.0)*cos(u_time)));
+  look.y = fract(look.y + vShift);
+  float bands = 0.5 + 0.5*sin(look.y*80.0 + u_time*6.0);
+  float xmod  = 0.5 + 0.5*sin(look.x*30.0 + u_time*3.0);
+  vec3 video  = vec3(mix(0.25, 0.9, bands * xmod));
+  // DDD sepia grade baseline
+  video = mix(video, vec3(0.86,0.73,0.53), 0.65);
+  return video;
+}
+
+// extra film grain (additive), and subtle chroma drift
+vec3 addGrain(vec2 uv, vec3 col){
+  // base fine grain in tile space
+  float g = n2(uv * u_res / 2.0 + u_time*1.2);
+  float g2 = n2(uv * 3.0 + u_time*0.7);
+  float flick = 0.95 + 0.05*sin(u_time*60.0);
+  float grain = (0.18*g + 0.10*g2) * flick;  // intensity
+  // chromatic micro-misalignment
+  float drift = 0.0025 * sin(u_time*1.9) + 0.0015 * sin((uv.y*u_res.y)*0.06 + u_time*3.1);
+  vec3 c;
+  c.r = col.r + grain * (0.80 + 0.20*sin(uv.y*17.0 + u_time*2.0));
+  c.g = col.g + grain;
+  c.b = col.b + grain * (0.80 + 0.20*cos(uv.x*19.0 + u_time*2.4));
+  // slight channel offset (aberration)
+  c.r += 0.005 * n2(uv*240.0 + vec2( drift, 0.0) + u_time);
+  c.b += 0.005 * n2(uv*240.0 + vec2(-drift, 0.0) + u_time*1.1);
+  return c;
+}
+
+void main(){
+  vec2 frag = gl_FragCoord.xy;
+  vec2 uv = frag / u_res;
+  uv = screenDistort(uv);
+
+  vec3 video = getVideo(uv);
+  video += stripes(uv);
+  // per-pixel high-frequency noise (dither shimmer)
+  video += 0.03 * (hash(frag + u_time*vec2(37.0, 17.0)) - 0.5);
+
+  // vignette
+  float dx = uv.x - 0.5, dy = uv.y - 0.5;
+  float vigAmt = 3.0 + 0.3*sin(u_time + 5.0*cos(u_time*5.0));
+  float vignette = (1.0 - vigAmt*dy*dy) * (1.0 - vigAmt*dx*dx);
+  vignette = clamp(vignette, 0.0, 1.0);
+  video *= vignette;
+
+  // add film grain & chroma drift
+  video = addGrain(uv, video);
+
+  gl_FragColor = vec4(video, 1.0);
+}
+    `;
+
+    function compile(type, src){
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src); gl.compileShader(sh);
+      if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+        console.error(gl.getShaderInfoLog(sh)); throw new Error('Shader compile failed');
+      }
+      return sh;
+    }
+    const prog = (() => {
+      const vs = compile(gl.VERTEX_SHADER, VERT);
+      const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+      const p = gl.createProgram();
+      gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+      if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+        console.error(gl.getProgramInfoLog(p)); throw new Error('Link failed');
+      }
+      return p;
+    })();
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+
+    const uRes = gl.getUniformLocation(prog, 'u_res');
+    const uTime = gl.getUniformLocation(prog, 'u_time');
+    let t0 = performance.now();
+
+    function draw(){
+      resize();
+      gl.useProgram(prog);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, (performance.now()-t0)/1000);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      requestAnimationFrame(draw);
+    }
+    resize(); draw();
+  </script>
+</body>
+</html>
